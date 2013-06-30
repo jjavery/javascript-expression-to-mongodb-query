@@ -1,0 +1,17 @@
+
+{
+  "name": "javascript-expression-to-mongodb-query",
+  "description": "Converts JavaScript expressions to MongoDB queries - good for hitting indexes",
+  "version": "0.0.1",
+	"author": {
+		"name": "James P. Javery",
+		"email": "james.javery@gmail.com",
+		"url": "http://github.com/jjavery"
+	},
+  "dependencies": {
+    "uglify-js": "*",
+  },
+  "devDependencies": {
+	  
+  }
+}
