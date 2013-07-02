@@ -21,23 +21,31 @@ JavaScriptExpressionConverter.prototype.visit = function (node) {
 			{
 				case '-':      return this.neg(node, this.visit(node[2]));
 				case '!':      return this.not(node, this.visit(node[2]));
+				case 'delete':	return this.del(node, this.visit(node[2]));
+				case '++':		return this.inc(node, this.visit(node[2]));
 				default:
 					throw new SyntaxError('Unsupported unary prefix "' + node[1] + '".');
 			}
 
 		case 'array':        
 			var elements = [];
-			for (var i = 0, len = node[1].length; i < len; ++i) {
+			for (var i = 0, ilen = node[1].length; i < ilen; ++i) {
 				elements.push(this.visit(node[1][i]));
 			}
 			return this.array(node, elements);
 
 		case 'call':         
 			var arguments = [];
-			for (var i = 0, len = node[2].length; i < len; ++i) {
+			for (var i = 0, ilen = node[2].length; i < ilen; ++i) {
 				arguments.push(this.visit(node[2][i]));
 			}
 			return this.call(node, this.visit(node[1][1]), node[1][2], arguments);
+			
+		case 'assign':
+			return this.assign(node, node[1], this.visit(node[2]), this.visit(node[3]));
+			
+		case 'seq':
+			return this.seq(node);
 
 		default:
 			throw new SyntaxError('Unsupported node type "' + type + '".');
@@ -80,12 +88,28 @@ JavaScriptExpressionConverter.prototype.not = function (node, value) {
 	throw new SyntaxError('Unsupported unary prefix "!".');
 };
 
+JavaScriptExpressionConverter.prototype.del = function (node, value) {
+	throw new SyntaxError('Unsupported unary prefix "delete".');
+};
+
+JavaScriptExpressionConverter.prototype.inc = function (node, value) {
+	throw new SyntaxError('Unsupported unary prefix "++".');
+};
+
 JavaScriptExpressionConverter.prototype.array = function (node, value) {
 	throw new SyntaxError('Unsupported node type "array".');
 };
 
 JavaScriptExpressionConverter.prototype.call = function (node, name, method, arguments) {
 	throw new SyntaxError('Unsupported node type "call".');
+};
+
+JavaScriptExpressionConverter.prototype.assign = function (node, operator, lvalue, rvalue) {
+	throw new SyntaxError('Unsupported node type "assign".');
+};
+
+JavaScriptExpressionConverter.prototype.seq = function (node) {
+	throw new SyntaxError('Unsupported node type "seq".');
 };
 
 var JavaScriptExpressionToMongoDBQueryConverter = function () {};
@@ -109,19 +133,21 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.mongoDbOperators = {
 };
 
 var P_ARRAY = 0;
-var P_SINGLE = 1;
-var P_EXPR = 2;
+var P_ONE = 1;
+var P_TWO = 2;
+var P_EXPR = 3;
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.mongoDbMethods = {
 	'all': [ '$all', P_ARRAY ],
 	'elemMatch': [ '$elemMatch', P_EXPR ],
-	'exists': [ '$exists', P_SINGLE ],
+	'exists': [ '$exists', P_ONE ],
 	'in': [ '$in', P_ARRAY ],
 	'mod': [ '$mod', P_ARRAY ],
 	'nin': [ '$nin', P_ARRAY ],
-	'size': [ '$size', P_SINGLE ],
-	'type': [ '$type', P_SINGLE ],
-	'where': [ '$where', P_SINGLE ]
+	'size': [ '$size', P_ONE ],
+	'type': [ '$type', P_ONE ],
+	'where': [ '$where', P_ONE ],
+	'regex': [ '$regex', P_TWO ]
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.convert = function (expression) {
@@ -132,7 +158,9 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.convert = function (expres
 	else {
 		ast = expression;
 	}
-	return JSON.parse(this.visit(ast));
+	var query = this.visit(ast);
+	console.log(query);
+	return JSON.parse(query);
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.string = function (node, string) {
@@ -155,8 +183,16 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.neg = function (node, valu
 	return '-' + value;
 };
 
-JavaScriptExpressionToMongoDBQueryConverter.prototype.not = function (node, value) {
-	throw new SyntaxError('Unsupported unary prefix "!".');
+JavaScriptExpressionToMongoDBQueryConverter.prototype.not = function (node, name) {
+	return '{ "' + name + '" : false }';
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.del = function (node, name) {
+	return '{ "$unset": { "' + name + '": null } }';
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.inc = function (node, name) {
+	return '{ "$inc": { "' + name + '": 1 } }';
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, operator, lvalue, rvalue) {
@@ -187,62 +223,203 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, o
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.array = function (node, elements) {
-		var value = '[ ';
-		for (var i = 0, len = elements.length; i < len; ++i) {
-			var element = elements[i];
-			if (i > 0) { value += ', '; }
-			value += value;
-		}
-		value += ' ]'
-		return value;
+	var query = '[ ';
+	for (var i = 0, ilen = elements.length; i < ilen; ++i) {
+		var element = elements[i];
+		if (i > 0) { query += ', '; }
+		query += element;
+	}
+	query += ' ]'
+	return query;
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.call = function (node, name, method, arguments) {
-	var value = '';
 	var mongoDbMethod = this.mongoDbMethods[method];
 
 	if (!mongoDbMethod) {
 		var methods = '';
-		for (var name in this.mongoDbMethods) { if (this.mongoDbMethods.hasOwnProperty(name)) {
+		for (var name in this.mongoDbMethods) {
 			var paramType = this.mongoDbMethods[name][1];
 			methods += name + '(';
-			if (paramType == P_ARRAY) { methods += 'value, …'; }
-			else if (paramType == P_SINGLE) { methods += 'value'; }
+			if (paramType == P_ARRAY) { methods += 'value, ...'; }
+			else if (paramType == P_ONE) { methods += 'value'; }
+			else if (paramType == P_TWO) { methods += 'value, value'; }
 			else if (paramType == P_EXPR) { methods += 'expr'; }
 			methods += ') ';
-		} } 
+		} 
 		throw new SyntaxError('Unsupported method "' + method + '()". Supported methods: ' + methods);
 	}
 
 	var methodName = mongoDbMethod[0];
 	var paramType = mongoDbMethod[1];
 
-	value = '';
-	value += '{ ';
-	value += '"' + name + '": { "' + methodName + '": ';
+	var query = '{ "' + name + '": { "' + methodName + '": ';
 	
 	if (paramType == P_ARRAY) {
-		value += '[ ';
+		query += '[ ';
 
-		for (var i = 0, len = arguments.length; i < len; ++i) {
+		for (var i = 0, ilen = arguments.length; i < ilen; ++i) {
 			var argument = arguments[i];
-			if (i > 0) { value += ', '; }
-			value += argument;
+			if (i > 0) { query += ', '; }
+			query += argument;
 		}
 
-		value += ']';
+		query += ']';
 	}
 	else if (arguments.length > 0) {
-		value += arguments[0];
+		query += arguments[0];
+		if (methodName == '$regex' && arguments.length > 1) {
+			query += ', "$options": ' + arguments[1];
+		}
 	}
 	else if (methodName == '$exists') {
-		value += 'true';
+		query += 'true';
 	}
 
-	value += ' }';
-	value += ' }';
+	query += ' } }';
 
-	return value;
+	return query;
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.assign = function (node, operator, lvalue, rvalue) {
+	switch (operator) {
+		case true:
+			return '{ "$set": { "' + lvalue + '": ' + rvalue + ' } }';
+		case '+':
+			return '{ "$inc": { "' + lvalue + '": ' + rvalue + ' } }';
+		default:
+			throw new SyntaxError('Unsupported assignment operator "' + operator + '".');
+	}
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.assignMultiple = function (nodes) {
+	var query = '"$set": { ';
+	
+	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
+		var node = nodes[i];
+		var lvalue = this.visit(node[2]);
+		var rvalue = this.visit(node[3]);
+		if (i > 0) { query += ', '; }
+		query += '"' + lvalue + '": ' + rvalue;
+	}
+	
+	query += ' }';
+	
+	return query;
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.delMultiple = function (nodes) {
+	var query = '"$unset": { ';
+	
+	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
+		var node = nodes[i];
+		var value = this.visit(node[2]);
+		if (i > 0) { query += ', '; }
+		query += '"' + value + '": null';
+	}
+	
+	query += ' }';
+	
+	return query;
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.incMultiple = function (nodes) {
+	var query = '"$inc": { ';
+	
+	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
+		var node = nodes[i];
+		var lvalue = this.visit(node[2]);
+		var rvalue = 1;
+		if (node[3]) { rvalue = this.visit(node[3]); }
+		if (i > 0) { query += ', '; }
+		query += '"' + lvalue + '": ' + rvalue;
+	}
+	
+	query += ' }';
+	
+	return query;
+};
+
+JavaScriptExpressionToMongoDBQueryConverter.prototype.seq = function (node) {
+	var map = {};
+	var stack = [];
+	stack.push(node);
+	
+	while (stack.length > 0) {
+		var currentNode = stack.pop();
+
+		var lvalue = currentNode[1];
+		var rvalue = currentNode[2];
+
+		var lvalueType = lvalue[0];
+		var rvalueType = rvalue[0];
+
+		switch (lvalueType) {
+			case 'seq':
+				stack.push(lvalue);
+				break;
+				
+			case 'unary-prefix':
+				if (lvalue[1] == 'delete') { lvalueType = 'del'; }
+				else if (lvalue[1] == '++') { lvalueType = 'inc'; }
+				else { throw new SyntaxError('Unary prefix "' + lvalue[1] + '" unsupported in sequence.'); }
+				
+			case 'assign':
+				if (lvalue[1] == '+') { lvalueType = 'inc'; }
+
+			default:
+				if (!map[lvalueType]) { map[lvalueType] = []; }
+				map[lvalueType].push(lvalue);
+				break;
+		}		
+
+		switch (rvalueType) {
+			case 'seq':
+				stack.push(rvalue);
+				break;
+
+			case 'unary-prefix':
+				if (rvalue[1] == 'delete') { rvalueType = 'del'; }
+				else if (rvalue[1] == '++') { rvalueType = 'inc'; }
+				else { throw new SyntaxError('Unary prefix "' + rvalue[1] + '" unsupported in sequence.'); }
+
+			case 'assign':
+				if (rvalue[1] == '+') { rvalueType = 'inc'; }
+
+			default:
+				if (!map[rvalueType]) { map[rvalueType] = []; }
+				map[rvalueType].push(rvalue);
+				break;
+		}		
+	}
+
+	var query = '{ ';
+	
+	var first = true;
+	
+	for (var name in map) {
+		var nodes = map[name];
+		switch (name) {
+			case 'assign':
+				if (!first) { query += ', ' } else { first = false; }
+				query += this.assignMultiple(nodes);
+				break;
+			case 'del':
+				if (!first) { query += ', ' } else { first = false; }
+				query += this.delMultiple(nodes);
+				break;
+			case 'inc':
+				if (!first) { query += ', ' } else { first = false; }
+				query += this.incMultiple(nodes);
+				break;
+			default:
+				throw new SyntaxError('Node type "' + type + '" unsupported in sequence.');
+		}
+	}
+	 
+	query += ' }';
+
+	return query;
 };
 
 function parse(expression) {
