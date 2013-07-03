@@ -9,7 +9,7 @@
 		"url": "http://github.com/jjavery"
 	},
   "dependencies": {
-    "uglify-js": "*",
+    "uglify-js": "1.x.x"
   },
   "devDependencies": {
 	  
