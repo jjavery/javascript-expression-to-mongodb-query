@@ -20,6 +20,20 @@ suite('converter', function () {
 			assert.equal(s(expected), s(actual));
 		});
 	
+		test('equality lvalue', function () {
+			var expected = { a: 1 };
+			var actual = converter.convert('1 == a');
+
+			assert.equal(s(expected), s(actual));
+		});
+	
+		test('equality lvalue dot', function () {
+			var expected = { 'a.b': 1 };
+			var actual = converter.convert('1 == a.b');
+
+			assert.equal(s(expected), s(actual));
+		});
+	
 		test('inequality', function () {
 			var expected = { a: { $ne: 1 } };
 			var actual = converter.convert('a != 1');
@@ -62,21 +76,28 @@ suite('converter', function () {
 			assert.equal(s(expected), s(actual));
 		});
 		
-		test('and', function () {
-			var expected = { $and: [ { a: 1 }, { b: 1 } ] };
-			var actual = converter.convert('a == 1 && b == 1');
-
+		test('AND', function () {
+			var expected = { a: 1, b: 1, c: 1 };
+			var actual = converter.convert('a == 1 && b == 1 && c == 1');
+			
 			assert.equal(s(expected), s(actual));
 		});
 	
-		test('or', function () {
+		test('AND on same field', function () {
+			var expected = { $and: [ { a: { $gte: 1 } }, { a: { $lte: 2 } } ] };
+			var actual = converter.convert('a >= 1 && a <= 2');
+			
+			assert.equal(s(expected), s(actual));
+		});
+
+		test('OR', function () {
 			var expected = { $or: [ { a: 1 }, { b: 1 } ] };
 			var actual = converter.convert('a == 1 || b == 1');
 
 			assert.equal(s(expected), s(actual));
 		});
 		
-		test('not', function () {
+		test('NOT', function () {
 			var expected = { a: false };
 			var actual = converter.convert('!a');
 
@@ -84,8 +105,8 @@ suite('converter', function () {
 		});
 		
 		test('complex', function () {
-			var expected = { $or: [ { a: { $gte: 1 } }, { $and: [ { b: { $ne: 1 } }, { c: { $lt: 1 } } ] } ] };
-			var actual = converter.convert('a >= 1 || (b != 1 && c < 1)');
+			var expected = { $or: [ { a: { $gte: 1 } }, { b: { $ne: 1 }, c: { $lt: 1 }, d: { $gte: 1 } } ] };
+			var actual = converter.convert('a >= 1 || (b != 1 && c < 1 && d >= 1)');
 
 			assert.equal(s(expected), s(actual));
 		});

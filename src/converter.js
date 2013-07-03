@@ -159,7 +159,7 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.convert = function (expres
 		ast = expression;
 	}
 	var query = this.visit(ast);
-	console.log(query);
+	//console.log(query);
 	return JSON.parse(query);
 };
 
@@ -196,8 +196,15 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.inc = function (node, name
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, operator, lvalue, rvalue) {
+	// Swap lvalue and rvalue if rvalue is a name or a dot.
+	if (node[3][0] == 'name' || node[3][0] == 'dot') {
+		var tvalue = lvalue;
+		lvalue = rvalue;
+		rvalue = tvalue;
+	}
+
 	var mongoDbOperator = this.mongoDbOperators[operator];
-	
+
 	if (!mongoDbOperator) {
 		var operators = '';
 		for (var name in this.mongoDbOperators) { if (this.mongoDbOperators.hasOwnProperty(name)) {
@@ -206,7 +213,7 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, o
 		} }
 		throw new SyntaxError('Unsupported operator "' + operator + '". Supported operators: ' + operators);
 	}
-	
+
 	switch (mongoDbOperator) {
 		case '$eq':
 			return '{ "' + lvalue + '": ' + rvalue + ' }';
@@ -217,6 +224,49 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, o
 		case '$lte':
 			return '{ "' + lvalue + '": { "' + mongoDbOperator + '": ' + rvalue + ' } }';
 		case '$and':
+			var stack = [];
+			var ands = [ node ];
+
+			stack.push(lvalue);
+			stack.push(rvalue);
+			
+			while (stack.length > 0) {
+				var value = stack.pop();
+				
+				lvalue = value[2];
+				rvalue = value[3];
+		
+				var lvalueType = lvalue[0];
+				var rvalueType = rvalue[0];
+				var lvalueOperator = lvalue[1];
+				var rvalueOperator = rvalue[1];
+
+				if (lvalueType == 'binary' && lvalueOperator == '&&') {
+					ands.push(lvalue);
+					stack.push(lvalue);
+				}
+
+				if (rvalueType == 'binary' && rvalueOperator == '&&') {
+					ands.push(rvalue);
+					stack.push(rvalue);
+				}
+			}
+			
+			var query = '{ ';
+
+			var self = this;
+			ands.forEach(function (value, i) {
+				var lvalue = value[2];
+				var rvalue = value[3];
+				if (i > 0) { query += ', '; }
+				l = self.visit(lvalue);
+				r = self.visit(rvalue);
+				query += l.substr(2, l.length - 4) + ', ' + r.substr(2, r.length - 4);
+			});
+			
+			query += ' }';
+			
+			return query;
 		case '$or':
 			return '{ "' + mongoDbOperator + '": [ ' + lvalue + ', ' + rvalue + ' ] }';
 	}
