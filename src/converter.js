@@ -184,15 +184,15 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.neg = function (node, valu
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.not = function (node, name) {
-	return '{ "' + name + '" : false }';
+	return '{"' + name + '":false}';
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.del = function (node, name) {
-	return '{ "$unset": { "' + name + '": null } }';
+	return '{"$unset":{"' + name + '":null}}';
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.inc = function (node, name) {
-	return '{ "$inc": { "' + name + '": 1 } }';
+	return '{"$inc":{"' + name + '":1}}';
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, operator, lvalue, rvalue) {
@@ -216,14 +216,16 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, o
 
 	switch (mongoDbOperator) {
 		case '$eq':
-			return '{ "' + lvalue + '": ' + rvalue + ' }';
+			return '{"' + lvalue + '":' + rvalue + '}';
 		case '$ne':
 		case '$gt':
 		case '$lt':
 		case '$gte':
 		case '$lte':
-			return '{ "' + lvalue + '": { "' + mongoDbOperator + '": ' + rvalue + ' } }';
+			return '{"' + lvalue + '":{"' + mongoDbOperator + '":' + rvalue + '}}';
 		case '$and':
+			var firstlvalue = lvalue;
+			var firstrvalue = rvalue;
 			var stack = [];
 			var ands = [ node ];
 
@@ -252,34 +254,40 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.binary = function (node, o
 				}
 			}
 			
-			var query = '{ ';
+			var query = '{';
 
 			var self = this;
 			ands.forEach(function (value, i) {
 				var lvalue = value[2];
 				var rvalue = value[3];
-				if (i > 0) { query += ', '; }
+				if (i > 0) { query += ','; }
 				l = self.visit(lvalue);
 				r = self.visit(rvalue);
-				query += l.substr(2, l.length - 4) + ', ' + r.substr(2, r.length - 4);
+				query += l.substr(1, l.length - 2) + ',' + r.substr(1, r.length - 2);
 			});
 			
-			query += ' }';
+			query += '}';
 			
-			return query;
+			if (query.length == JSON.stringify(JSON.parse(query)).length) {
+				return query;
+			}
+			else {
+				return '{"' + mongoDbOperator + '":[' + firstlvalue + ',' + firstrvalue + ']}';
+			}
+
 		case '$or':
-			return '{ "' + mongoDbOperator + '": [ ' + lvalue + ', ' + rvalue + ' ] }';
+			return '{"' + mongoDbOperator + '":[' + lvalue + ',' + rvalue + ']}';
 	}
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.array = function (node, elements) {
-	var query = '[ ';
+	var query = '[';
 	for (var i = 0, ilen = elements.length; i < ilen; ++i) {
 		var element = elements[i];
-		if (i > 0) { query += ', '; }
+		if (i > 0) { query += ','; }
 		query += element;
 	}
-	query += ' ]'
+	query += ']'
 	return query;
 };
 
@@ -303,14 +311,14 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.call = function (node, nam
 	var methodName = mongoDbMethod[0];
 	var paramType = mongoDbMethod[1];
 
-	var query = '{ "' + name + '": { "' + methodName + '": ';
+	var query = '{"' + name + '":{"' + methodName + '":';
 	
 	if (paramType == P_ARRAY) {
-		query += '[ ';
+		query += '[';
 
 		for (var i = 0, ilen = arguments.length; i < ilen; ++i) {
 			var argument = arguments[i];
-			if (i > 0) { query += ', '; }
+			if (i > 0) { query += ','; }
 			query += argument;
 		}
 
@@ -319,14 +327,14 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.call = function (node, nam
 	else if (arguments.length > 0) {
 		query += arguments[0];
 		if (methodName == '$regex' && arguments.length > 1) {
-			query += ', "$options": ' + arguments[1];
+			query += ',"$options":' + arguments[1];
 		}
 	}
 	else if (methodName == '$exists') {
 		query += 'true';
 	}
 
-	query += ' } }';
+	query += '}}';
 
 	return query;
 };
@@ -334,58 +342,58 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.call = function (node, nam
 JavaScriptExpressionToMongoDBQueryConverter.prototype.assign = function (node, operator, lvalue, rvalue) {
 	switch (operator) {
 		case true:
-			return '{ "$set": { "' + lvalue + '": ' + rvalue + ' } }';
+			return '{"$set":{"' + lvalue + '":' + rvalue + '}}';
 		case '+':
-			return '{ "$inc": { "' + lvalue + '": ' + rvalue + ' } }';
+			return '{"$inc":{"' + lvalue + '":' + rvalue + '}}';
 		default:
 			throw new SyntaxError('Unsupported assignment operator "' + operator + '".');
 	}
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.assignMultiple = function (nodes) {
-	var query = '"$set": { ';
+	var query = '"$set":{';
 	
 	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
 		var node = nodes[i];
 		var lvalue = this.visit(node[2]);
 		var rvalue = this.visit(node[3]);
-		if (i > 0) { query += ', '; }
-		query += '"' + lvalue + '": ' + rvalue;
+		if (i > 0) { query += ','; }
+		query += '"' + lvalue + '":' + rvalue;
 	}
 	
-	query += ' }';
+	query += '}';
 	
 	return query;
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.delMultiple = function (nodes) {
-	var query = '"$unset": { ';
+	var query = '"$unset":{';
 	
 	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
 		var node = nodes[i];
 		var value = this.visit(node[2]);
-		if (i > 0) { query += ', '; }
-		query += '"' + value + '": null';
+		if (i > 0) { query += ','; }
+		query += '"' + value + '":null';
 	}
 	
-	query += ' }';
+	query += '}';
 	
 	return query;
 };
 
 JavaScriptExpressionToMongoDBQueryConverter.prototype.incMultiple = function (nodes) {
-	var query = '"$inc": { ';
+	var query = '"$inc":{';
 	
 	for (var i = 0, ilen = nodes.length; i < ilen; ++i) {
 		var node = nodes[i];
 		var lvalue = this.visit(node[2]);
 		var rvalue = 1;
 		if (node[3]) { rvalue = this.visit(node[3]); }
-		if (i > 0) { query += ', '; }
-		query += '"' + lvalue + '": ' + rvalue;
+		if (i > 0) { query += ','; }
+		query += '"' + lvalue + '":' + rvalue;
 	}
 	
-	query += ' }';
+	query += '}';
 	
 	return query;
 };
@@ -443,7 +451,7 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.seq = function (node) {
 		}		
 	}
 
-	var query = '{ ';
+	var query = '{';
 	
 	var first = true;
 	
@@ -451,15 +459,15 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.seq = function (node) {
 		var nodes = map[name];
 		switch (name) {
 			case 'assign':
-				if (!first) { query += ', ' } else { first = false; }
+				if (!first) { query += ',' } else { first = false; }
 				query += this.assignMultiple(nodes);
 				break;
 			case 'del':
-				if (!first) { query += ', ' } else { first = false; }
+				if (!first) { query += ',' } else { first = false; }
 				query += this.delMultiple(nodes);
 				break;
 			case 'inc':
-				if (!first) { query += ', ' } else { first = false; }
+				if (!first) { query += ',' } else { first = false; }
 				query += this.incMultiple(nodes);
 				break;
 			default:
@@ -467,7 +475,7 @@ JavaScriptExpressionToMongoDBQueryConverter.prototype.seq = function (node) {
 		}
 	}
 	 
-	query += ' }';
+	query += '}';
 
 	return query;
 };
